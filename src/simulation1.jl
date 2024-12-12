@@ -1,6 +1,5 @@
 using Random, Distributions, Statistics, StatsFuns, Plots, LinearAlgebra, Arpack, SparseArrays
 
-
 n = 1000
 m = 500
 k = 500
@@ -53,4 +52,4 @@ p2 = plot(grid, x, label = "NPMLE of the prior probability measure \$widehat{G}_
 
 p3 = plot(obsersort, theta_hat[id], marker = :+, label = "Bayes estimator of \$\theta_i\$", lw = 2)
 
-plot(p1, p2, p3, layout = (1, 3), size = (1800, 600))
+plot(p1, p2, p3, layout = (1, 3), size = (2200, 1000))
