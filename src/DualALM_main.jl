@@ -1,7 +1,7 @@
 using Printf
 
 function DualALM_main(
-    LL,
+    LL::Dict{Symbol, Any},
     parmain,
     x::Vector{Float64},
     y::Vector{Float64},
