@@ -17,35 +17,55 @@
 #   iter: number of iterations
 #   par: updated parameters
 
-function findstep(Grad, dv, LTdv, LL, phi0, v1input0, prox_v10, prox_v1_prime_m0, v2input0, prox_v20, Lprox_v20, tol, options, par)
+using LinearAlgebra
+
+
+function findstep(Grad, dv, LTdv, LL, phi0, v1input0, prox_v10, prox_v1_prime_m0, 
+                  v2input0, prox_v20, Lprox_v20, tol, options, par)
+
     sigma = par[:sigma]
     n = par[:n]
-    m = par[:m]
+    # m = par[:m] # m is not used in this function
     printyes = par[:printyes]
+
     maxit = ceil(Int, log(1 / (tol + eps())) / log(2))
     c1 = 1e-4
     c2 = 0.9
     g0 = -dot(Grad, dv)
 
+    # If no ascent direction
     if g0 <= 0
-        if printyes
-            println("\n Need an ascent direction, ", g0)
-        end
-        return phi0, v1input0, prox_v10, prox_v1_prime_m0, v2input0, prox_v20, Lprox_v20, 0.0, 0, par
+        if printyes > 0
+            @printf("\n Need an ascent direction, %2.1e  ", g0)
+        end    
+        phi = phi0
+        v1input = copy(v1input0)
+        prox_v1 = copy(prox_v10)
+        prox_v1_prime_m = copy(prox_v1_prime_m0)
+        v2input = copy(v2input0)
+        prox_v2 = copy(prox_v20)
+        Lprox_v2 = copy(Lprox_v20)
+        alp = 0.0
+        iter = 0
+        return phi, v1input, prox_v1, prox_v1_prime_m, v2input, prox_v2, Lprox_v2, alp, iter, par
     end
 
-    phi = phi0
-    alp = 1.0
     alpconst = 0.5
-    LB, UB = 0.0, 1.0
-    gLB, gUB = 0.0, 0.0
+    # Initialize iteration variables
     v1input = copy(v1input0)
     v2input = copy(v2input0)
     prox_v1 = copy(prox_v10)
     prox_v2 = copy(prox_v20)
     prox_v1_prime_m = copy(prox_v1_prime_m0)
-    iter = 0
 
+    # Line search initialization
+    alp = 1.0
+    LB = 0.0
+    UB = 1.0
+    gLB = 0.0
+    gUB = 0.0
+
+    iter = 0
     for i in 1:maxit
         iter = i
         if iter == 1
@@ -53,52 +73,62 @@ function findstep(Grad, dv, LTdv, LL, phi0, v1input0, prox_v10, prox_v1_prime_m0
             LB = 0.0
             UB = 1.0
         else
-            alp = alpconst * (LB + UB)
+            alp = alpconst*(LB + UB)
         end
 
         v1input = v1input0 .+ alp .* dv
         v2input = v2input0 .+ (alp / n) .* LTdv
-        prox_v1, M_v1, _, prox_v1_prime_m = prox_h(v1input, sigma / (n^2))
-        prox_v2 = max.(v2input, 0.0)  # Reassign prox_v2, not mutate
-        phi = -(M_v1 + (sigma / 2) * norm(prox_v2)^2)
-        tmp = (sigma / (n^2)) * (v1input .- prox_v1)
-        galp = -dot(tmp, dv) - (sigma / n) * dot(prox_v2, LTdv)
+
+        prox_v1, M_v1, _, prox_v1_prime_m = prox_h(v1input, sigma/(n^2))
+        prox_v2 .= max.(v2input, 0.0)  
+
+        phi = -(M_v1 + (sigma/2)*norm(prox_v2)^2)
+
+        tmp = (sigma/(n^2))*(v1input .- prox_v1)
+        galp = -dot(tmp, dv) - (sigma/n)*dot(prox_v2, LTdv)
 
         if iter == 1
-            gLB, gUB = g0, galp
-            if sign(gLB) * sign(gUB) > 0
-                if printyes
-                    print("|")
+            gLB = g0
+            gUB = galp
+            # Check if gLB and gUB have same sign
+            if sign(gLB)*sign(gUB) > 0
+                if printyes > 0
+                   print("|")
                 end
                 break
             end
         end
 
-        if (abs(galp) < c2 * abs(g0)) && (phi - phi0 - c1 * alp * g0 > eps())
+        # Armijo and curvature conditions: 
+        #   Condition: (abs(galp) < c2*abs(g0)) and (phi > phi0 + c1*alp*g0 + eps())
+        if (abs(galp) < c2*abs(g0)) && (phi > phi0 + c1*alp*g0 + eps())
             if (options == 1) || ((options == 2) && (abs(galp) < tol))
-                if printyes
-                    print(":")
+                if printyes > 0
+                   print(":")
                 end
                 break
             end
         end
 
-        if sign(galp) * sign(gUB) < 0
-            LB, gLB = alp, galp
-        elseif sign(galp) * sign(gLB) < 0
-            UB, gUB = alp, galp
+        # Update LB and UB based on galp
+        if sign(galp)*sign(gUB) < 0
+            LB = alp; gLB = galp
+        elseif sign(galp)*sign(gLB) < 0
+            UB = alp; gUB = galp
         end
     end
 
+    # Apply the linear operator again after determining alp
     Lprox_v2 = LL[:times](prox_v2)
-    par[:count_L] += 1
+    par[:count_L] = par[:count_L] + 1
 
-    if printyes && (iter == maxit)
+    if printyes > 0 && (iter == maxit)
         print("m")
     end
 
     return phi, v1input, prox_v1, prox_v1_prime_m, v2input, prox_v2, Lprox_v2, alp, iter, par
 end
+
 
 
 

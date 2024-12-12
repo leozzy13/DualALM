@@ -10,23 +10,28 @@
 #   prox_prime_minus : 1 - prox_prime.
 
 
+using LinearAlgebra
+
 function prox_h(y, sigma)
     n = length(y)
     tmp = sqrt.(y.^2 .+ 4.0 / (sigma * n))
     prox_y = 0.5 .* (tmp .+ y)
+    
     if any(prox_y .<= 0)
-        @warn "Log is not defined for non-positive elements in prox_y. Adjusting prox_y to avoid log(0)."
-        # Add a small epsilon to non-positive elements to prevent -Inf in log
-        prox_y = prox_y .+ (prox_y .<= 0) .* 1e-30
+        @warn "log is not defined for non-positive elements, shifting prox_y"
+        prox_y .= prox_y .+ 1e-30
     end
     
-    M_y = (sigma / 2.0) * norm(prox_y - y)^2 - (sum(log.(prox_y)))/n
-    tmp_derivative = y ./ tmp
-    prox_prime = 0.5 .* (1 .+ tmp_derivative)
-    prox_prime_minus = 0.5 .* (1 .- tmp_derivative)
+    M_y = (sigma / 2.0) * norm(prox_y - y)^2 - (sum(log.(prox_y)) / n)
+    
+    tmp = y ./ tmp
+    prox_prime = 0.5 .* (1 .+ tmp)
+    prox_prime_minus = 0.5 .* (1 .- tmp)
     
     return prox_y, M_y, prox_prime, prox_prime_minus
 end
+
+
 
 
 ## function test(complete)

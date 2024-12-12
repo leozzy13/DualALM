@@ -1,4 +1,4 @@
-function mextriang(U::AbstractMatrix, b::AbstractVector, options::Int = 1)
+function mextriang(U, b, options::Int = 1)
 
     if size(U, 1) != size(U, 2)
         throw(ArgumentError("Matrix U must be square"))

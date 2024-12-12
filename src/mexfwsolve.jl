@@ -8,19 +8,13 @@ Returns the solution vector x.
 using LinearAlgebra
 using SparseArrays
 
-function mexfwsolve(R::SparseMatrixCSC, b::AbstractVector)
+function mexfwsolve(R, b)
     if size(R, 1) != size(R, 2)
         throw(DimensionMismatch("R should be a square matrix"))
     end
 
     if !istriu(R)
         throw(ArgumentError("R must be upper triangular"))
-    end
-
-    for i in 1:size(R, 1)
-        if R[i, i] == 0
-            throw(SingularException(i))
-        end
     end
 
     Rt_lower = LowerTriangular(R')

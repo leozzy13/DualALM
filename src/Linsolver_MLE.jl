@@ -14,20 +14,23 @@
 using LinearAlgebra
 using Random
 
+using LinearAlgebra
+
 function Linsolver_MLE(rhs, LL, prox_v1_prime_m, v2, par)
     n = par[:n]
     m = par[:m]
     sigma = par[:sigma]
+    
     J = v2 .> 0
     r = sum(J)
     par[:r] = r
-    solveby = "pcg"  
-    
+
+    solveby = "pcg"
     if n <= 5000
-        solveby = "pdirect" 
+        solveby = "pdirect"
     end
     if (r < 2000) || (n > 5000 && r < 5000)
-        solveby = "ddirect" 
+        solveby = "ddirect"
     end
 
     if solveby == "pdirect"
@@ -37,20 +40,21 @@ function Linsolver_MLE(rhs, LL, prox_v1_prime_m, v2, par)
             VJ = V[J, :]
             LLT = U * (VJ' * VJ) * U'
             for i in 1:n
-                LLT[i, i] += prox_v1_prime_m[i] 
+                LLT[i, i] += prox_v1_prime_m[i]
             end
             cholLLT = mycholAAt(LLT, n)
         else
-            LJ = LL.matrix[:, J]
+            LJ = LL[:matrix][:, J]
             LLT = LJ * LJ'
             for i in 1:n
-                LLT[i, i] += prox_v1_prime_m[i] 
+                LLT[i, i] += prox_v1_prime_m[i]
             end
             cholLLT = mycholAAt(LLT, n)
         end
         dv = mylinsysolve(cholLLT, rhs * (n^2 / sigma))
         resnrm = 0
         solve_ok = 1
+
     elseif solveby == "pcg"
         if par[:approxL]
             U = LL[:U]
@@ -58,18 +62,22 @@ function Linsolver_MLE(rhs, LL, prox_v1_prime_m, v2, par)
             VJ = V[J, :]
             Afun = v -> ((prox_v1_prime_m .* v + U * ((VJ * (v' * U)')' * VJ)') * (sigma / n^2))
         else
-            LJ = LL.matrix[:, J]
+            LJ = LL[:matrix][:, J]
             Afun = v -> ((prox_v1_prime_m .* v + LJ * (LJ' * v)) * (sigma / n^2))
         end
         dv, _, resnrm, solve_ok = psqmr(Afun, rhs, par)
+
     elseif solveby == "ddirect"
         rhs = rhs * (n^2 / sigma)
-        prox_v1_prime_m .+= eps()
+        prox_v1_prime_m .= prox_v1_prime_m .+ eps()
+
         if par[:approxL]
             U = LL[:U]
             V = LL[:V]
             VJ = V[J, :]
+            # Compute rhstmp
             rhstmp = VJ * ((rhs ./ prox_v1_prime_m)' * U)'
+            # Compute LTL
             LTL = VJ * (U' * (U ./ prox_v1_prime_m)) * VJ'
             for i in 1:r
                 LTL[i, i] += 1
@@ -81,9 +89,13 @@ function Linsolver_MLE(rhs, LL, prox_v1_prime_m, v2, par)
                 dv = mylinsysolve(cholLTL, rhstmp)
             end
             dv = (U * (dv' * VJ)') ./ prox_v1_prime_m
-            dv = rhs ./ prox_v1_prime_m - dv
+            dv = rhs ./ prox_v1_prime_m .- dv
         else
-            LJ = r == m ? LL[:matrix] : LL[:matrix][:, J]
+            if r == m
+                LJ = LL[:matrix]
+            else
+                LJ = LL[:matrix][:, J]
+            end
             LJ2 = LJ ./ prox_v1_prime_m
             rhstmp = (rhs' * LJ2)'
             LTL = LJ' * LJ2
@@ -95,7 +107,7 @@ function Linsolver_MLE(rhs, LL, prox_v1_prime_m, v2, par)
                 dv = mylinsysolve(cholLTL, rhstmp)
             end
             dv = LJ2 * dv
-            dv = rhs ./ prox_v1_prime_m - dv
+            dv = rhs ./ prox_v1_prime_m .- dv
         end
         resnrm = 0
         solve_ok = 1
@@ -103,6 +115,7 @@ function Linsolver_MLE(rhs, LL, prox_v1_prime_m, v2, par)
 
     return dv, resnrm, solve_ok, par
 end
+
 
 
 

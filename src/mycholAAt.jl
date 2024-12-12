@@ -9,26 +9,28 @@ using SparseArrays
 
 function mycholAAt(ATT, m)
     use_spchol = count(!iszero, ATT) < 0.2 * m * m
-    L = Dict()
+    L = Dict{Symbol,Any}()
 
     if use_spchol
-        ch = cholesky(sparse(ATT), check=false)
-        L[:R] = sparse(ch.L)'
-        L[:Rt] = sparse(ch.L)
-        L[:perm] = collect(ch.p) 
+        ch = cholesky(sparse(ATT); check=false)
+        L[:R] = ch.U        # Upper triangular factor
+        L[:Rt] = (ch.U)'    # Transpose of R
+        L[:p] = ch.info     # Similar to L.p in MATLAB
+        L[:perm] = ch.p     # Permutation vector
         L[:matfct_options] = "spcholmatlab"
     else
         if issparse(ATT)
             ATT = Matrix(ATT)
         end
+        ch = cholesky(ATT; check=false)
         L[:matfct_options] = "chol"
         L[:perm] = collect(1:m)
-        chol_result = cholesky(ATT, check = false)
-        L[:R] = chol_result.U  # obtain the upper triangualr matrix in Cholesky decomposition
+        L[:R] = ch.U  
     end
 
     return L
 end
+
 
 
 

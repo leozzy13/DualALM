@@ -7,19 +7,13 @@ using SparseArrays
 Solve R * x = b where R is upper triangular and Rt = transpose(R).
 Returns the solution vector x.
 """
-function mexbwsolve(R::SparseMatrixCSC, b::AbstractVector)
+function mexbwsolve(R, b)
     if size(R, 1) != size(R, 2)
         throw(DimensionMismatch("R should be a square matrix"))
     end
 
     if !istril(R)
         throw(ArgumentError("R must be lower triangular"))
-    end
-
-    for i in 1:size(R, 1)
-        if R[i, i] == 0
-            throw(SingularException(i))
-        end
     end
 
     Rt_upper = UpperTriangular(R')

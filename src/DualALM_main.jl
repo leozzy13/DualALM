@@ -1,14 +1,14 @@
 using Printf
 
 function DualALM_main(
-    LL::Dict{Symbol, Any},
+    LL,
     parmain,
     x::Vector{Float64},
     y::Vector{Float64},
     u::Vector{Float64},
     v::Vector{Float64}
 )
-    # Extract parameters with defaults
+
     tstart = parmain[:tstart]
     stoptol = parmain[:stoptol]
     stopop = parmain[:stopop]
@@ -20,44 +20,42 @@ function DualALM_main(
     m = parmain[:m]
     n = parmain[:n]
 
-    # Initialize variables
     stop = false
     sigmamax = 1e7
     sigmamin = 1e-8
     count_L = 0
     count_LT = 0
-    
+
     # Initial objective values and feasibilities
     Lx = LL[:times](x)
     count_L += 1
-    obj_prim = sum(x) - sum(log.(Lx)) / n - 1.0
-    obj_dual = sum(log.(u)) / n
+    obj_prim = sum(x) - sum(log.(Lx))/n - 1.0
+    obj_dual = sum(log.(u))/n
     obj = [obj_prim, obj_dual]
-    
+
     relgap = abs(obj_prim - obj_dual) / (1.0 + abs(obj_prim) + abs(obj_dual))
     Rp = Lx .- y
-    normy = norm(y)
-    primfeas = max(norm(Rp) / normy, norm(min.(x, 0.0)) / norm(x))
-    LTv = LL[:trans](y)
+    normy = norm(y, 2)
+    primfeas = max(norm(Rp, 2)/normy, norm(min.(x, 0.0), 2)/norm(x, 2))
+
+    LTv = LL[:trans](v) # Use v here, as in MATLAB
     count_LT += 1
     Rd = max.(LTv .- n, 0.0)
-    normu_val = norm(u)
-    dualfeas = max(norm(Rd) / n, norm(u .- v) / max(normu_val, 1e-10))
+    normu_val = norm(u, 2)
+    dualfeas = max(norm(Rd, 2)/n, norm(u .- v, 2)/max(normu_val,1e-10))
     maxfeas = max(primfeas, dualfeas)
-    eta = norm(y .- 1.0 ./ v) / normy
-    
-    # Initial print
-    if printyes
+    eta = norm(y .- 1.0./v, 2)/normy
+
+    if printyes > 0
         println("\n (dimension: m = $m, n = $n, tol = $stoptol)")
         println("---------------------------------------------------")
         println("\n*********************************************" *
                 "*******************************************************")
         @printf("\n %5d| [%3.2e %3.2e %3.2e] %- 3.2e| %- 8.6e  %- 8.6e |",
                 0, primfeas, dualfeas, eta, relgap, obj_prim, obj_dual)
-        @printf(" %5.1f| %3.2e|\n", (time() - tstart), sigma)
+        @printf(" %5.1f| %3.2e|", (time() - tstart), sigma)
     end
-    
-    # Prepare parameters for the main loop
+
     parNCG = Dict{Symbol, Any}(
         :tolconst => 0.5,
         :count_L => count_L,
@@ -66,18 +64,17 @@ function DualALM_main(
         :approxRank => approxRank,
         :m => m,
         :n => n,
-        :iter => 0,    # Initialize iter
+        :iter => 0,
         :sigma => sigma
     )
-    
+
     maxitersub = 20
     ssncgop = Dict(
         :tol => stoptol,
         :printyes => printyes,
-        :maxitersub => maxitersub  # Added maxitersub as it is used in MLE_SSNCG
+        :maxitersub => maxitersub
     )
-    
-    # Prepare runhist storage
+
     runhist = Dict{Symbol, Any}(
         :primfeas => zeros(Float64, maxiter),
         :dualfeas => zeros(Float64, maxiter),
@@ -91,80 +88,73 @@ function DualALM_main(
         :itersub  => zeros(Int, maxiter),
         :iterCG   => zeros(Int, maxiter)
     )
-    
+
     termination = ""
-    
-    # Main loop
-    for i in 1:maxiter
-        iter = i
+    for iter in 1:maxiter
         parNCG[:iter] = iter
         parNCG[:sigma] = sigma
-    
+
         # Adjust maxitersub based on dualfeas
         if dualfeas < 1e-5
-            maxitersub = max(maxitersub, 35)
+            maxitersub = max(maxitersub,35)
         elseif dualfeas < 1e-3
-            maxitersub = max(maxitersub, 30)
+            maxitersub = max(maxitersub,30)
         elseif dualfeas < 1e-1
-            maxitersub = max(maxitersub, 30)
+            maxitersub = max(maxitersub,30)
         end
-    
         ssncgop[:maxitersub] = maxitersub
-    
-        # SSN
+
         tstart_ssn = time()
-        # Call MLE_SSNCG
         x, y, u, v, Lx, LTv, parNCG, _, info_NCG = MLE_SSNCG(LL, x, y, v, LTv, parNCG, ssncgop)
         ttimessn = time() - tstart_ssn
-    
+
         if info_NCG[:breakyes] < 0
-            parNCG[:tolconst] = max(parNCG[:tolconst] / 1.06, 1e-3)
+            parNCG[:tolconst] = max(parNCG[:tolconst]/1.06, 1e-3)
         end
-    
+
         # Compute KKT residual
         Rp = Lx .- y
-        normy = norm(y)
-        primfeas = max(norm(Rp) / normy, norm(min.(x, 0.0)) / norm(x))
+        normy = norm(y, 2)
+        primfeas = max(norm(Rp, 2)/normy, norm(min.(x,0.0), 2)/norm(x,2))
         Rd = max.(LTv .- n, 0.0)
-        normu_val = norm(u)
-        dualfeas = max(norm(Rd) / n, norm(u .- v) / max(normu_val, 1e-10))
+        normu_val = norm(u,2)
+        dualfeas = max(norm(Rd,2)/n, norm(u .- v,2)/max(normu_val,1e-10))
         maxfeas = max(primfeas, dualfeas)
-        eta = norm(y .- 1.0 ./ v) / normy
-    
-        # Compute objective values
-        primobj = sum(x) - sum(log.(Lx)) / n - 1.0
-        dualobj = sum(log.(u)) / n
-        obj = [primobj, dualobj]
+        eta = norm(y .- 1.0./v,2)/normy
+
+        primobj = sum(x) - sum(log.(Lx))/n - 1.0
+        dualobj = sum(log.(u))/n
         gap = primobj - dualobj
-        relgap = abs(gap) / (1.0 + abs(primobj) + abs(dualobj))
-    
+        relgap = abs(gap)/(1.0 + abs(primobj) + abs(dualobj))
+
         # Check stopping conditions
+        stop = false
         if (stopop == 1) && (maxfeas < stoptol) && (eta < stoptol)
-            stop = 1
-        elseif (stopop == 2) && (eta < stoptol * 10 || maxfeas < stoptol * 10)
-            pkkt = norm(x .- max.(x .+ (LL[:trans](1.0 ./ Lx) / n) .- 1.0, 0.0))
-            parNCG[:count_LT] += 1
+            stop = true
+        elseif (stopop == 2) && (eta < stoptol*10 || maxfeas < stoptol*10)
+            tmp = (LL[:trans](1.0./Lx)/n) .- 1.0
+            parNCG[:count_LT] = parNCG[:count_LT] + 1
+            pkkt = norm(x .- max.(x .+ tmp,0.0),2)
             if pkkt < stoptol
-                stop = 1
+                stop = true
             end
-        elseif (stopop == 3) && (eta < stoptol * 10 || maxfeas < stoptol * 10)
-            tmp = (LL[:trans](1.0 ./ Lx) / n) .- 1.0  # Corrected line
-            parNCG[:count_LT] += 1
-            pkkt = norm(x .- max.(x .+ tmp, 0.0))
+        elseif (stopop == 3) && (eta < stoptol*10 || maxfeas < stoptol*10)
+            tmp = (LL[:trans](1.0./Lx)/n) .- 1.0
+            parNCG[:count_LT] = parNCG[:count_LT] + 1
+            pkkt = norm(x .- max.(x .+ tmp,0.0),2)
             pkkt2 = maximum(tmp)
             if max(pkkt2, pkkt) < stoptol
-                stop = 1
+                stop = true
             end
         elseif stopop == 4
-            tmp = (LL[:trans](1.0 ./ Lx) / n) .- 1.0  # Corrected line
-            parNCG[:count_LT] += 1
-            pkkt = norm(x .- max.(x .+ tmp, 0.0))
+            tmp = (LL[:trans](1.0./Lx)/n) .- 1.0
+            parNCG[:count_LT] = parNCG[:count_LT] + 1
+            pkkt = norm(x .- max.(x .+ tmp,0.0),2)
             if pkkt < stoptol
-                stop = 1
+                stop = true
             end
         end
-    
-        # Record run history
+
         ttime = time() - tstart
         runhist[:primfeas][iter] = primfeas
         runhist[:dualfeas][iter] = dualfeas
@@ -175,40 +165,41 @@ function DualALM_main(
         runhist[:relgap][iter] = relgap
         runhist[:ttime][iter] = ttime
         runhist[:ttimessn][iter] = ttimessn
-        runhist[:itersub][iter] = get(info_NCG, :itersub, 0) - 1
+        runhist[:itersub][iter] = get(info_NCG, :itersub, 1) - 1
         runhist[:iterCG][iter] = get(info_NCG, :tolCG, 0)
-    
-        # Print progress if required
-        if printyes
+
+        if printyes > 0
             @printf("\n %5d| [%3.2e %3.2e %3.2e] %- 3.2e| %- 8.6e  %- 8.6e |",
                     iter, primfeas, dualfeas, eta, relgap, primobj, dualobj)
-            @printf(" %5.1f| %3.2e|\n", ttime, sigma)
+            @printf(" %5.1f| %3.2e|", ttime, sigma)
         end
-    
-        # Check termination
-        if (stop != 0 && iter > 5) || (iter == maxiter)
-            termination = stop != 0 ? "converged" : "maxiter reached"
+
+        if (stop && iter > 5) || (iter == maxiter)
+            if stop
+                termination = "converged"
+            elseif iter == maxiter
+                termination = "maxiter reached"
+            end
             runhist[:termination] = termination
             runhist[:iter] = iter
             obj = [primobj, dualobj]
             break
         end
-    
-        # Update sigma based on info_NCG[:breakyes] and dual feasibility
-        if get(info_NCG, :breakyes, 0) >= 0  # Important to use >= 0
-            sigma = max(sigmamin, sigma / 10.0)
-        elseif (iter > 1 && runhist[:dualfeas][iter] / runhist[:dualfeas][iter-1] > 0.6)
-            if sigma < 1e7 && primfeas < 100 * stoptol
+
+        # Update sigma
+        if get(info_NCG, :breakyes, 0) >= 0
+            sigma = max(sigmamin, sigma/10.0)
+        elseif (iter > 1 && runhist[:dualfeas][iter]/runhist[:dualfeas][iter-1] > 0.6)
+            if sigma < 1e7 && primfeas < 100*stoptol
                 sigmascale = 3.0
             else
                 sigmascale = sqrt(3.0)
             end
-            sigma = min(sigmamax, sigma * sigmascale)
+            sigma = min(sigmamax, sigma*sigmascale)
         end
     end
-    
-    # Prepare info dictionary
-    info = Dict{Symbol, Any}(
+
+    info = Dict{Symbol,Any}(
         :maxfeas => maxfeas,
         :eta => eta,
         :iter => haskey(runhist, :iter) ? runhist[:iter] : maxiter,
@@ -219,6 +210,6 @@ function DualALM_main(
         :count_L => parNCG[:count_L],
         :count_LT => parNCG[:count_LT]
     )
-    
+
     return obj, x, y, u, v, info, runhist
 end

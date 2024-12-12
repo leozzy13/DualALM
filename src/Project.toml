@@ -1,0 +1,6 @@
+[project]
+name = "DualAlm"
+uuid = "7da56049-4495-47c1-ae0c-e44676df5de2"
+authors = ["Your Name <you@example.com>"]
+description = "A brief description of your project."
+license = "MIT"

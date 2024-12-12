@@ -15,8 +15,8 @@ using LinearAlgebra
 
 function psqmr(matvecfun, b, par; x0=nothing, Ax0=nothing)
     N = length(b)
-    maxit = max(5000, round(Int, sqrt(N)))
-    tol = 1e-6*norm(b)
+    maxit = max(5000, ceil(Int, sqrt(N)))
+    tol = 1e-6 * norm(b)
     stagnate_check = 20
     miniter = 0
 
@@ -40,12 +40,12 @@ function psqmr(matvecfun, b, par; x0=nothing, Ax0=nothing)
     solve_ok = 1
     printlevel = 1
 
-    x = x0
-    if norm(x) > 0
+    if x0 !== nothing && norm(x0) > 0
         Aq = Ax0 === nothing ? matvecfun(x0) : Ax0
     else
         Aq = zeros(N)
     end
+
     r = b - Aq
     err = norm(r)
     resnrm = [err]
@@ -59,14 +59,14 @@ function psqmr(matvecfun, b, par; x0=nothing, Ax0=nothing)
     res_vec = r
     Ad = zeros(N)
 
-    tiny = -1e-30
-    iter = 0
+    tiny = -1e-30  
 
+    iter = 0
     for i in 1:maxit
         iter = i
         Aq = matvecfun(q)
         sigma = dot(q, Aq)
-        if abs(sigma) < abs(tiny)
+        if abs(sigma) < tiny 
             solve_ok = 2
             if printlevel > 0
                 print("s1")
@@ -78,14 +78,13 @@ function psqmr(matvecfun, b, par; x0=nothing, Ax0=nothing)
         end
 
         u = r
-
         theta = norm(u) / tau_old
         c = 1 / sqrt(1 + theta^2)
         tau = tau_old * theta * c
         gam = c^2 * (theta_old^2)
         eta = (c^2 * alpha)
         d = gam * d + eta * q
-        x = x + d
+        x0 = x0 + d
 
         Ad = gam * Ad + eta * Aq
         res_vec = res_vec - Ad
@@ -94,7 +93,7 @@ function psqmr(matvecfun, b, par; x0=nothing, Ax0=nothing)
         if err < minres
             minres = err
         end
-        if (err < tol) && (iter > miniter) && (dot(b, x) > 0)
+        if (err < tol) && (iter > miniter) && (dot(b, x0) > 0)
             break
         end
 
@@ -109,7 +108,7 @@ function psqmr(matvecfun, b, par; x0=nothing, Ax0=nothing)
             end
         end
 
-        if abs(rho_old) < abs(tiny)
+        if abs(rho_old) < tiny  
             solve_ok = 2
             print("s2")
             break
@@ -129,8 +128,9 @@ function psqmr(matvecfun, b, par; x0=nothing, Ax0=nothing)
     end
 
     Ax = b - res_vec
-    return x, Ax, resnrm, solve_ok
+    return x0, Ax, resnrm, solve_ok
 end
+
 
 
 ## function test(complete)

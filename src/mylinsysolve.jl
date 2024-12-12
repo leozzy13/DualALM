@@ -7,13 +7,19 @@
 #   q  : Solution vector.
 
 function mylinsysolve(L, r)
-    q = similar(r)
+    q = similar(r)  # allocate a vector q of the same size as r
+    perm = L[:perm]
+
     if L[:matfct_options] == "chol"
-        # Solve using standard Cholesky factorization
-        q[L[:perm]] = mextriang(L[:R], mextriang(L[:R], r[L[:perm]], 2), 1)
+        q[perm] = mextriang(L[:R], mextriang(L[:R], r[perm], 2), 1)
+
     elseif L[:matfct_options] == "spcholmatlab"
-        # Solve using sparse Cholesky factorization
-        q[L[:perm]] = mexbwsolve(L[:Rt], mexfwsolve(L[:R], r[L[:perm]]))
+        q[perm] = mexbwsolve(L[:Rt], mexfwsolve(L[:R], r[perm]))
+
+    else
+        error("Unknown matfct_options")
     end
+
     return q
 end
+

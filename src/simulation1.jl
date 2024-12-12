@@ -1,10 +1,10 @@
-using Random, Statistics, StatsFuns, Plots
+using Random, Distributions, Statistics, StatsFuns, Plots, LinearAlgebra, Arpack, SparseArrays
 
 
 n = 1000
 m = 500
 k = 500
-mu = 7.0
+mu = 10
 
 obser = zeros(Float64, n)
 obser[1:k] .= randn(k) .+ mu

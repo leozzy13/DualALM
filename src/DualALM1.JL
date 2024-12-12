@@ -3,7 +3,8 @@ using Printf
 using Arpack  
 using Statistics
 
-function DualALM(L::Matrix{Float64}, options)
+function DualALM(L::Matrix{Float64}, options::Dict{Symbol,Any})
+    # Extract parameters
     stoptol    = get(options, :stoptol, 1e-6)
     stopop     = get(options, :stopop, 1)
     printyes   = get(options, :printyes, true)
@@ -23,19 +24,20 @@ function DualALM(L::Matrix{Float64}, options)
     tstart = time()
     n,m = size(L)
 
-    if scaleL 
+    # Scale L if needed
+    if scaleL
         s = if haskey(options, :rowmax)
-                1.0 ./(options[:rowmax])
+                1.0 ./ (options[:rowmax])
             else
-                1.0 ./ maximum(L, dims=2)
+                1.0 ./ (maximum(L, dims=2))
             end
         s = vec(s)
         if printyes 
             println("\n max/min scale = ", maximum(1.0./s), "/", minimum(1.0./s))
         end
         if n > 1e6
-            for i in 1:n
-                @inbounds L[i,:] .= s[i]*L[i,:]
+            @inbounds for i in 1:n
+                L[i,:] .*= s[i]
             end
         else
             L = s .* L
@@ -44,15 +46,16 @@ function DualALM(L::Matrix{Float64}, options)
         s = ones(n)
     end
 
-    # Define LL
+    # Set up LL structure for times and trans operations
     LL = Dict{Symbol,Any}()
     LL[:matrix] = L
 
-    if approxL 
+    # Low rank approximation if requested
+    if approxL
         approxRank = ceil(Int, approxRank)
         approxSucceed = false
         t1 = time()
-        # Compute partial SVD
+        # Perform partial SVD
         Z, nconv, niter, nmult, resid = svds(L; nsv=approxRank, ritzvec=true)
         U = Z.U  
         S = Z.S 
@@ -61,7 +64,7 @@ function DualALM(L::Matrix{Float64}, options)
         if printyes
             println("\n approximate rank = ",approxRank)
             println(" partial svd(L) = ", t2," seconds")
-            println(" singular values <= ", S[approxRank], " were considered ")
+            println(" singular values <= ", S[approxRank], " might be truncated")
             println(" ----------")
         end
 
@@ -75,11 +78,11 @@ function DualALM(L::Matrix{Float64}, options)
                 approxRank = smallidx
                 if printyes 
                     println("\n approximate rank = ",approxRank," (further truncated)")
-                    println(" singular values <= ", S[approxRank], " were truncated ")
+                    println(" singular values <= ", S[end], " were truncated ")
                     println(" ----------")
                 end
             end
-            # incorporate S into U
+            # Incorporate S into U
             for i in 1:approxRank
                 U[:,i] .*= S[i]
             end
@@ -89,6 +92,7 @@ function DualALM(L::Matrix{Float64}, options)
             LL[:trans] = (y-> V*(U'*y))
             approxSucceed = true
         end
+
         if !approxSucceed
             if printyes 
                 println("\n numerical rank of L > ",approxRank,", set approxL = 0")
@@ -106,23 +110,22 @@ function DualALM(L::Matrix{Float64}, options)
     # Initialization
     if init_opt == 0
         xnew = fill(1.0/m, m)
-        ynew = sum(L, dims=2)/m
-        ynew = vec(ynew)
+        ynew = vec(sum(L, dims=2)/m)
         unew = 1.0 ./ ynew
         vnew = copy(unew)
     else
         xnew = fill(0.5*sigma, m)
-        ynew = sum(L, dims=2)/m
-        ynew = vec(ynew)
+        ynew = vec(sum(L, dims=2)/m)
         unew = 1.0 ./ ynew
         vnew = zeros(n)
     end
 
+    # Initial KKT check
     Lx = LL[:times](xnew)
-    tmp = LL[:trans](1.0 ./ Lx)/n .- 1
+    tmp = LL[:trans](1.0 ./ Lx)/n .- 1.0
     pkkt = norm(xnew .- max.(xnew .+ tmp, 0.0))
     if pkkt < stoptol
-        # terminated at initial point
+        # Terminated at the initial point
         obj_prim = sum(xnew) + sum(log.(s) .- log.(Lx))/n - 1
         obj = obj_prim
         y = []
@@ -130,13 +133,13 @@ function DualALM(L::Matrix{Float64}, options)
         v = []
         info = Dict{Symbol,Any}()
         runhist = Dict{Symbol,Any}()
-        if printyes == 1
+        if printyes
             println("\n Terminated at the initial point, primal KKT residual = ", pkkt)
         end
         return obj, xnew, y, u, v, info, runhist
     end
 
-    # Prepare parmain
+    # Setup parmain for DualALM_main
     parmain = Dict{Symbol,Any}()
     parmain[:tstart] = tstart
     parmain[:stoptol] = stoptol
@@ -149,6 +152,7 @@ function DualALM(L::Matrix{Float64}, options)
     parmain[:m] = m
     parmain[:n] = n
 
+    # Call DualALM_main
     obj_main, xnew, ynew, unew, vnew, info_main, runhist_main = DualALM_main(LL, parmain, xnew, ynew, unew, vnew)
     ttime = (time() - tstart)
     iter = info_main[:iter]
@@ -157,6 +161,7 @@ function DualALM(L::Matrix{Float64}, options)
         msg = " maximum iteration reached"
     end
 
+    # Rescale variables
     x = xnew
     y = ynew ./ s
     u = unew .* s
@@ -167,11 +172,10 @@ function DualALM(L::Matrix{Float64}, options)
     Rp = Lxorg - y
     normy = norm(y)
     primfeas = max(norm(Rp)/normy, norm(min.(x,0.0))/norm(x))
-    tmp2 = ((1.0 ./ Lx')*L)'/n .- 1
-
     normu_val = norm(u)
-    Rd = max.(LL[:trans](vnew)' .- n,0.0)
-    dualfeas = max(norm(Rd)/n, norm(u - v)/normu_val)
+    # Use vnew in Rd because original code uses 'v' before re-scaling
+    Rd = max.(info_main[:count_LT] !== nothing ? LL[:trans](vnew) .- n : LL[:trans](v) .- n, 0.0)
+    dualfeas = max(norm(Rd)/n, norm(u .- v)/normu_val)
     maxfeas = max(primfeas, dualfeas)
     eta = norm(y .- (1.0 ./ v))/normy
 
@@ -181,28 +185,30 @@ function DualALM(L::Matrix{Float64}, options)
     gap = primobj - dualobj
     relgap = abs(gap)/(1 + abs(primobj) + abs(dualobj))
 
+    tmp2 = ((1.0 ./ Lx')*L)'/n .- 1.0
     pkkt = norm(x .- max.(x .+ tmp2,0.0))
     pkkt2 = maximum(tmp2)
 
     runhist = runhist_main
-    info = Dict{Symbol,Any}()
-    info[:relgap] = relgap
-    info[:iter] = iter
-    info[:itersub] = sum(runhist[:itersub])
-    info[:time] = ttime
-    info[:timessn] = sum(runhist[:ttimessn])
-    info[:eta] = eta
-    info[:obj] = obj
-    info[:maxfeas] = maxfeas
-    info[:kktres] = max(maxfeas, eta)
-    info[:pkkt] = pkkt
-    info[:pkkt2] = pkkt2
-    info[:sumlogLx] = -sum(log.(Lxorg))
-    info[:count_L] = info_main[:count_L]
-    info[:count_LT] = info_main[:count_LT]
-    info[:termination] = msg
+    info = Dict{Symbol,Any}(
+        :relgap => relgap,
+        :iter => iter,
+        :itersub => sum(runhist[:itersub]),
+        :time => ttime,
+        :timessn => sum(runhist[:ttimessn]),
+        :eta => eta,
+        :obj => obj,
+        :maxfeas => maxfeas,
+        :kktres => max(maxfeas, eta),
+        :pkkt => pkkt,
+        :pkkt2 => pkkt2,
+        :sumlogLx => -sum(log.(Lxorg)),
+        :count_L => info_main[:count_L],
+        :count_LT => info_main[:count_LT],
+        :termination => msg
+    )
 
-    if printyes 
+    if printyes
         println("\n****************************************")
         println(" ALM          : $msg")
         println(" iteration    : $iter")
@@ -223,9 +229,4 @@ function DualALM(L::Matrix{Float64}, options)
 
     return obj, x, y, u, v, info, runhist
 end
-
-
-
-
-
 
